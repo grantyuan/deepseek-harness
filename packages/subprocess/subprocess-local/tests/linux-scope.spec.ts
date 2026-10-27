@@ -945,6 +945,20 @@ describe('Linux scope establishment and quiescence', () => {
     launched.result.owner.cleanup?.()
   })
 
+  it('releases an active empty scope once its client has completed without a termination request', async () => {
+    // Regression: a command that exits on its own never signals, so the departed
+    // client and the consumed request must settle the leftover without one.
+    denyProcessGroups()
+    const spawnSync = recordingSystemctl()
+    const launched = launch(async () => activeUnitWithTasks('0'), { spawnSync: spawnSync as never })
+    consumeLinuxLaunchRequest(launched.requestPath)
+    launched.child.exit(0, null)
+    await expect(launched.result.owner.waitForExit()).resolves.toBeUndefined()
+    await expect(launched.result.direct).resolves.toEqual({ exitCode: 0, signal: null })
+    expect(spawnSync.mock.calls.map(call => call[1]?.[1])).toEqual(['stop'])
+    launched.result.owner.cleanup?.()
+  })
+
   it('keeps waiting while the client still owns an active scope with no processes', async () => {
     denyProcessGroups()
     const spawnSync = recordingSystemctl()
@@ -958,7 +972,7 @@ describe('Linux scope establishment and quiescence', () => {
     launched.result.owner.cleanup?.()
   })
 
-  it('keeps waiting for an active empty scope no termination has requested', async () => {
+  it('keeps waiting for an active empty scope while its client is still alive', async () => {
     const states = [activeUnitWithTasks('0'), unloadedUnit()]
     const launched = launch(async () => states.shift() ?? unloadedUnit())
     await expect(launched.result.owner.waitForExit()).resolves.toBeUndefined()

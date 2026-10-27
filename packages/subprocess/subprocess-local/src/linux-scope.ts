@@ -284,7 +284,6 @@ class LinuxScopeStartup {
 class SystemdScopeOwner implements BoundProcessOwner {
   private establishment: 'pending' | 'established' = 'pending'
   private stopped = false
-  private terminationRequested = false
   private observation: Promise<void> | undefined
   private killFailure: Error | undefined
   private directKillSettlement: Promise<void> | undefined
@@ -312,7 +311,6 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped) return
-    this.terminationRequested = true
     if (this.direct.running()) this.startup.terminationSignals.add(signal)
     this.observeRequestConsumption()
     const directFallbackRequired = this.establishment === 'pending'
@@ -387,11 +385,14 @@ class SystemdScopeOwner implements BoundProcessOwner {
    * than a launch still placing its payload. systemd ends a scope only on the
    * populated-to-empty transition, so a payload killed before it entered the
    * cgroup leaves the unit active forever. A departed client cannot add another
-   * payload; a consumed request proves the payload already entered the scope,
-   * even while its direct-process exit notification is pending.
+   * payload, and a consumed request proves the payload already entered the
+   * scope, even while its direct-process exit notification is pending. Either
+   * fact settles the leftover: a command that completes on its own never issues
+   * a termination request, so demanding one leaks the unit and its observation
+   * loop.
    */
   private emptyRange(tasksCurrent: number | undefined): boolean {
-    return this.terminationRequested && tasksCurrent === 0
+    return tasksCurrent === 0
       && (!this.direct.running() || !existsSync(this.startup.files.requestPath))
   }
 
